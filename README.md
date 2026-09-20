@@ -14,7 +14,8 @@
 
 ## 使用
 
-直接双击 `时空立方体-伪4D可视化.html` 即可打开，无需服务器。
+直接双击 `index.html` 即可打开，无需服务器。
+在线预览（GitHub Pages）：https://KBrown102.github.io/space-time-cube/
 
 three.js 优先从 jsDelivr CDN 加载，加载失败时自动回退到本地 `lib/` 目录（可离线使用）。
 若转发分享，请连同 `lib/` 文件夹一起发送。
@@ -29,9 +30,9 @@ three.js 优先从 jsDelivr CDN 加载，加载失败时自动回退到本地 `l
 
 ```
 SpaceTimeCube/
-├── 时空立方体-伪4D可视化.html   # 单页应用（全部代码内联）
+├── index.html                 # 单页应用（全部代码内联）
 ├── lib/
-│   ├── three.min.js            # three.js r128 本地镜像
-│   └── OrbitControls.js        # 轨道控制器本地镜像
+│   ├── three.min.js           # three.js r128 本地镜像
+│   └── OrbitControls.js       # 轨道控制器本地镜像
 └── README.md
 ```
