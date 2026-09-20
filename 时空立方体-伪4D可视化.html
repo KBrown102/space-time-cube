@@ -1,0 +1,889 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="时空立方体：把视频帧按时间堆叠成半透明三维柱体，用伪4维视角观察3维世界。">
+<title>时空立方体 · 伪4D视角看世界</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230b0f1a'/%3E%3Cpath d='M16 5 27 11v10l-11 6-11-6V11z' fill='none' stroke='%2335e0ff' stroke-width='2'/%3E%3Cpath d='M16 5v10m11 6L16 15 5 21' stroke='%23f2c879' stroke-width='2' fill='none'/%3E%3C/svg%3E">
+<style>
+:root{
+  --bg:#0a0d16;
+  --panel:rgba(255,255,255,.035);
+  --line:rgba(255,255,255,.09);
+  --txt:#e8ecf6;
+  --dim:#8b98b5;
+  --acc:#35e0ff;
+  --acc2:#8ea2ff;
+  --gold:#f2c879;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  background:var(--bg);
+  color:var(--txt);
+  font-family:"PingFang SC","Microsoft YaHei","Segoe UI",system-ui,sans-serif;
+  display:flex;flex-direction:column;
+  overflow:hidden;
+}
+/* ===== 顶栏 ===== */
+header{
+  padding:12px 22px;
+  border-bottom:1px solid var(--line);
+  display:flex;align-items:baseline;gap:16px;flex-wrap:wrap;
+  background:rgba(10,13,22,.7);
+}
+header h1{
+  font-size:19px;font-weight:700;letter-spacing:.5px;
+  background:linear-gradient(90deg,#9db0ff,#35e0ff);
+  -webkit-background-clip:text;background-clip:text;color:transparent;
+  white-space:nowrap;
+}
+header .sub{color:var(--dim);font-size:13px}
+/* ===== 主区 ===== */
+main{flex:1;display:flex;min-height:0}
+#viewport{position:relative;flex:1;min-width:0;background:radial-gradient(1100px 700px at 60% 20%,#11162a 0%,var(--bg) 60%)}
+#viewport canvas{display:block;width:100%;height:100%}
+#hud{
+  position:absolute;top:12px;left:14px;z-index:5;
+  font-size:12px;color:var(--dim);line-height:1.7;
+  background:rgba(10,13,22,.55);border:1px solid var(--line);border-radius:8px;
+  padding:6px 10px;pointer-events:none;max-width:72%;
+}
+#hud b{color:var(--txt);font-weight:600}
+#spinner{
+  position:absolute;inset:0;z-index:8;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;
+  background:rgba(10,13,22,.55);backdrop-filter:blur(2px);color:var(--dim);font-size:14px;
+}
+#spinner.hidden{display:none}
+.spin-ring{
+  width:42px;height:42px;border-radius:50%;
+  border:3px solid rgba(255,255,255,.12);border-top-color:var(--acc);
+  animation:spin 1s linear infinite;
+}
+@keyframes spin{to{transform:rotate(360deg)}}
+#toast{
+  position:absolute;left:50%;bottom:18px;transform:translateX(-50%);z-index:9;
+  background:#2a1620;border:1px solid #e06b6b;color:#ffd7d7;
+  font-size:13px;padding:8px 14px;border-radius:8px;display:none;max-width:80%;
+}
+#toast.show{display:block}
+/* ===== 侧栏 ===== */
+#panel{
+  width:304px;flex:none;overflow-y:auto;
+  border-left:1px solid var(--line);
+  background:var(--panel);
+  padding:14px 16px 20px;
+}
+.sec{margin-bottom:18px}
+.sec h3{
+  font-size:11px;font-weight:600;color:var(--dim);
+  letter-spacing:1.5px;margin-bottom:9px;
+  display:flex;align-items:center;gap:6px;
+}
+.sec h3::before{content:"";width:3px;height:11px;border-radius:2px;background:var(--acc)}
+.row{display:flex;align-items:center;gap:8px;margin-bottom:9px}
+.row label{font-size:13px;color:var(--txt);width:52px;flex:none}
+.row input[type=range]{flex:1;min-width:0;accent-color:var(--acc)}
+.row .val{width:44px;text-align:right;font-size:12px;color:var(--dim);font-variant-numeric:tabular-nums}
+/* 分段选择 */
+.seg{display:flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.seg button{
+  flex:1;background:transparent;border:none;color:var(--dim);
+  font-size:12px;padding:5px 0;cursor:pointer;font-family:inherit;
+  transition:background .15s,color .15s;
+}
+.seg button.active{background:rgba(53,224,255,.14);color:var(--acc)}
+.seg button:not(.active):hover{color:var(--txt)}
+/* 芯片按钮 */
+.chips{display:flex;gap:8px}
+.chip{
+  flex:1;text-align:center;font-size:13px;padding:7px 0;border-radius:8px;cursor:pointer;
+  border:1px solid var(--line);color:var(--dim);background:transparent;font-family:inherit;
+  transition:all .15s;
+}
+.chip:hover{color:var(--txt);border-color:rgba(255,255,255,.22)}
+.chip.active{
+  color:#071019;background:linear-gradient(90deg,#7fc9ff,#35e0ff);
+  border-color:transparent;font-weight:600;
+}
+#fileInfo{font-size:12px;color:var(--dim);margin-top:8px;line-height:1.7}
+#fileInfo.err{color:#ff9c9c}
+/* 开关 */
+.switch{display:flex;align-items:center;gap:7px;font-size:13px;color:var(--txt);cursor:pointer;margin-bottom:8px;user-select:none}
+.switch input{accent-color:var(--acc);width:15px;height:15px;cursor:pointer}
+/* 切片区 */
+#sliceRow{margin-top:10px;border:1px solid var(--line);border-radius:10px;padding:10px}
+#sliceRow.hidden{display:none}
+#preview{
+  width:100%;height:auto;aspect-ratio:16/9;background:#000;border-radius:6px;display:block;margin-top:8px;
+  border:1px solid rgba(242,200,121,.35);
+}
+.slice-meta{display:flex;align-items:center;gap:8px;margin-top:8px}
+.slice-meta input[type=range]{flex:1;accent-color:var(--gold)}
+.slice-meta .val{width:70px;text-align:right;font-size:12px;color:var(--dim);font-variant-numeric:tabular-nums}
+.btn-play{
+  border:1px solid rgba(242,200,121,.5);background:rgba(242,200,121,.1);color:var(--gold);
+  font-size:12px;padding:4px 12px;border-radius:6px;cursor:pointer;font-family:inherit;
+}
+.btn-play:hover{background:rgba(242,200,121,.2)}
+.hint{font-size:12px;color:var(--dim);line-height:1.7}
+.hint b{color:var(--txt);font-weight:600}
+.btn-primary{
+  width:100%;padding:8px 0;border-radius:8px;cursor:pointer;font-family:inherit;font-size:13px;
+  border:1px solid rgba(142,162,255,.5);background:rgba(142,162,255,.1);color:#c3cdff;
+  transition:background .15s;
+}
+.btn-primary:hover{background:rgba(142,162,255,.2)}
+/* ===== 底部概念 ===== */
+footer{
+  border-top:1px solid var(--line);
+  background:rgba(10,13,22,.85);
+  padding:14px 22px 16px;
+  display:flex;gap:26px;align-items:flex-start;flex-wrap:wrap;
+}
+footer .concept{flex:1;min-width:300px}
+footer h2{font-size:14px;font-weight:700;margin-bottom:8px;color:var(--txt)}
+footer h2 span{color:var(--acc)}
+.concept ol{margin:0;padding-left:18px;color:var(--dim);font-size:12.5px;line-height:1.85}
+.concept ol b{color:var(--txt);font-weight:600}
+.concept .tip{margin-top:8px;font-size:12px;color:#5d6b8c;line-height:1.7}
+#chain{width:560px;max-width:100%;height:auto;flex:none;align-self:center}
+/* ===== 窄屏 ===== */
+@media (max-width:920px){
+  html,body{height:auto;overflow:visible}
+  body{display:block}
+  main{flex-direction:column}
+  #viewport{height:52vh}
+  #panel{width:100%;border-left:none;border-top:1px solid var(--line);overflow:visible}
+  footer{flex-direction:column}
+  .chip{padding:10px 0;min-height:44px}
+  .seg button{min-height:44px}
+  .switch{min-height:34px}
+  .switch input{width:18px;height:18px}
+  .btn-play{min-height:34px;padding:6px 14px}
+  .btn-primary{min-height:44px}
+  .hint{font-size:13px}
+  .concept ol{font-size:14px;line-height:1.9}
+  #hud{font-size:12px;max-width:86%}
+}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>时空立方体</h1>
+  <div class="sub">把视频的每一帧按时间堆叠成半透明的柱体 —— 用伪4维的视角，看3维的世界</div>
+</header>
+
+<main>
+  <div id="viewport">
+    <div id="hud">初始化中…</div>
+    <div id="spinner" class="hidden"><div class="spin-ring"></div><div id="spinnerText">正在生成演示帧…</div></div>
+    <div id="toast"></div>
+  </div>
+
+  <aside id="panel">
+    <div class="sec">
+      <h3>视频源</h3>
+      <div class="chips">
+        <button id="btnDemo" class="chip active">演示动画</button>
+        <label class="chip" for="fileInput" style="cursor:pointer">上传视频
+          <input type="file" id="fileInput" accept="video/*" hidden>
+        </label>
+      </div>
+      <div id="fileInfo"></div>
+    </div>
+
+    <div class="sec">
+      <h3>柱体参数</h3>
+      <div class="row"><label>帧数</label><input type="range" id="frameCount" min="16" max="120" step="1" value="60"><span class="val" id="frameCountVal">60</span></div>
+      <div class="row"><label>透明度</label><input type="range" id="opacity" min="5" max="100" step="1" value="50"><span class="val" id="opacityVal">0.50</span></div>
+      <div class="row"><label>帧间距</label><input type="range" id="spacing" min="15" max="100" step="1" value="32"><span class="val" id="spacingVal">0.32</span></div>
+      <div class="row"><label>混合方式</label>
+        <div class="seg" style="flex:1">
+          <button data-blend="normal" id="blendNormal">正常</button>
+          <button data-blend="additive" id="blendAdd" class="active">发光</button>
+        </div>
+      </div>
+      <div class="hint">“发光”适合暗背景画面，把运动轨迹变成发光的“世界线”；“正常”适合真实视频。</div>
+    </div>
+
+    <div class="sec">
+      <h3>时间切片</h3>
+      <label class="switch"><input type="checkbox" id="sliceToggle">切片模式（切开柱体看某一时刻）</label>
+      <div id="sliceRow" class="hidden">
+        <div class="slice-meta">
+          <input type="range" id="sliceIndex" min="0" max="59" step="1" value="30">
+          <button id="slicePlay" class="btn-play">播放</button>
+        </div>
+        <div class="slice-meta" style="margin-top:2px"><span class="val" id="sliceTime" style="text-align:left;width:auto">t = 0.00 s</span></div>
+        <canvas id="preview" width="240" height="135"></canvas>
+        <div class="hint" style="margin-top:6px">切片截面 = 该时刻的视频帧；点击“播放”让切片沿时间轴自动滑动。</div>
+      </div>
+    </div>
+
+    <div class="sec">
+      <h3>视角与辅助</h3>
+      <label class="switch"><input type="checkbox" id="axisToggle" checked>坐标轴 / 时间轴</label>
+      <label class="switch"><input type="checkbox" id="gridToggle" checked>地面网格</label>
+      <label class="switch"><input type="checkbox" id="boxToggle" checked>包围盒</label>
+      <label class="switch"><input type="checkbox" id="autoRotate">自动旋转</label>
+      <button id="resetView" class="btn-primary" style="margin-top:4px">重置视角</button>
+    </div>
+
+    <div class="sec hint">
+      <b>操作：</b>左键拖动＝旋转镜头 · 滚轮＝缩放 · 右键拖动＝平移
+    </div>
+  </aside>
+</main>
+
+<footer>
+  <div class="concept">
+    <h2>一个想法：<span>把时间变成一根轴</span></h2>
+    <ol>
+      <li>0维的<b>点</b>排成 1维的<b>线</b>；线排成 2维的<b>面</b>；面排成 3维的<b>体</b>。</li>
+      <li>视频的每一帧，就是一张二维的<b>面</b>。</li>
+      <li>把帧按时间顺序堆叠起来，时间就变成了第三根轴 —— 得到一个 (x, y, t) 的<b>三维柱体</b>。</li>
+      <li>从任意角度拖动镜头观察它，就是<b>伪4维视角</b>：物体的运动轨迹在柱体里变成一条连续的“世界线”。</li>
+    </ol>
+    <div class="tip">想看到漂亮的世界线？试试上传画面中有明显运动的视频（跳动的小球、走动的人、转动的物体），效果最直观。</div>
+  </div>
+  <svg id="chain" viewBox="0 0 720 150" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="从0维到伪4维的示意图">
+    <!-- 0维 点 -->
+    <circle cx="60" cy="66" r="5.5" fill="#35e0ff"/>
+    <text x="60" y="118" text-anchor="middle" font-size="13" fill="#8b98b5">0维 · 点</text>
+    <!-- 1维 线 -->
+    <line x1="194" y1="66" x2="226" y2="66" stroke="#35e0ff" stroke-width="3" stroke-linecap="round"/>
+    <text x="210" y="118" text-anchor="middle" font-size="13" fill="#8b98b5">1维 · 线</text>
+    <!-- 2维 面 -->
+    <rect x="336" y="48" width="56" height="38" fill="rgba(53,224,255,.12)" stroke="#35e0ff" stroke-width="2"/>
+    <text x="364" y="118" text-anchor="middle" font-size="13" fill="#8b98b5">2维 · 面</text>
+    <!-- 3维 体 -->
+    <polygon points="484,66 532,66 544,59 496,59" fill="rgba(142,162,255,.18)" stroke="#8ea2ff" stroke-width="2"/>
+    <polygon points="484,66 532,66 532,100 484,100" fill="rgba(142,162,255,.1)" stroke="#8ea2ff" stroke-width="2"/>
+    <polygon points="532,66 544,59 544,93 532,100" fill="rgba(142,162,255,.14)" stroke="#8ea2ff" stroke-width="2"/>
+    <text x="514" y="118" text-anchor="middle" font-size="13" fill="#8b98b5">3维 · 体</text>
+    <!-- 伪4维 时空柱 -->
+    <g opacity="0.85">
+      <polygon points="600,92 646,92 652,62 606,62" fill="rgba(242,200,121,.14)" stroke="#f2c879" stroke-width="1.6"/>
+      <polygon points="610,84 656,84 662,54 616,54" fill="rgba(242,200,121,.24)" stroke="#f2c879" stroke-width="1.6"/>
+      <polygon points="620,76 666,76 672,46 626,46" fill="rgba(242,200,121,.34)" stroke="#f2c879" stroke-width="1.6"/>
+      <polygon points="630,68 676,68 682,38 636,38" fill="rgba(242,200,121,.5)" stroke="#f2c879" stroke-width="1.6"/>
+    </g>
+    <text x="656" y="118" text-anchor="middle" font-size="13" fill="#f2c879">伪4维 · 时空柱</text>
+    <!-- 箭头 -->
+    <g stroke="#4a5878" stroke-width="2">
+      <line x1="96" y1="66" x2="180" y2="66"/><line x1="252" y1="66" x2="322" y2="66"/>
+      <line x1="408" y1="66" x2="470" y2="66"/><line x1="556" y1="72" x2="586" y2="76"/>
+    </g>
+    <g fill="#4a5878">
+      <polygon points="180,62 192,66 180,70"/>
+      <polygon points="322,62 334,66 322,70"/>
+      <polygon points="470,62 482,66 470,70"/>
+      <polygon points="586,72 596,77 586,82"/>
+    </g>
+  </svg>
+</footer>
+
+<!-- three.js：优先 jsDelivr CDN，失败时回退本地 lib/（页面可离线使用） -->
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+<script>window.THREE||document.write('<script src="lib/three.min.js"><\/script>');</script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script>window.THREE&&window.THREE.OrbitControls||document.write('<script src="lib/OrbitControls.js"><\/script>');</script>
+
+<script>
+/* ============================================================
+ * 时空立方体 · 伪4D视频可视化
+ * 帧沿时间轴(Z)堆叠成半透明柱体，OrbitControls 任意角度观察
+ * ============================================================ */
+'use strict';
+
+/* ---------- 状态 ---------- */
+const state = {
+  source:'demo',            // 'demo' | 'video'
+  frames:[],                // [{canvas, t}]
+  frameW:9,
+  frameH:5.0625,
+  frameCount:60,
+  opacity:0.5,
+  spacing:0.32,
+  blend:'additive',         // 'additive' | 'normal'
+  sliceOn:false,
+  sliceIndex:30,
+  slicePlaying:false,
+  axisOn:true,
+  gridOn:true,
+  boxOn:true,
+  autoRotate:false,
+  video:null,
+  videoMeta:null,
+  sliceAcc:0
+};
+
+/* ---------- DOM ---------- */
+const $ = id => document.getElementById(id);
+const viewportEl = $('viewport'), hudEl = $('hud'), spinnerEl = $('spinner'), spinnerTextEl = $('spinnerText'), toastEl = $('toast');
+const fileInfoEl = $('fileInfo'), previewCanvas = $('preview'), previewCtx = previewCanvas.getContext('2d');
+const sliceRowEl = $('sliceRow'), sliceTimeEl = $('sliceTime');
+
+/* ---------- 场景 ---------- */
+let scene, camera, renderer, controls, raf;
+const volumeGroup = new THREE.Group();
+const auxGroup = new THREE.Group();
+let frameMeshes = [];
+let slicePlane = null, sliceBox = null;
+let fpsEl = null;
+
+/* ---------- 工具 ---------- */
+function showToast(msg){
+  toastEl.textContent = msg;
+  toastEl.classList.add('show');
+  clearTimeout(showToast._t);
+  showToast._t = setTimeout(()=>toastEl.classList.remove('show'), 4200);
+}
+function showSpinner(t){ spinnerTextEl.textContent = t || ''; spinnerEl.classList.remove('hidden'); }
+function updateSpinner(t){ spinnerTextEl.textContent = t; }
+function hideSpinner(){ spinnerEl.classList.add('hidden'); }
+function zFor(i){ return ((state.frames.length - 1) / 2 - i) * state.spacing; }
+function copyCanvas(src){
+  const c = document.createElement('canvas');
+  c.width = src.width; c.height = src.height;
+  c.getContext('2d').drawImage(src, 0, 0);
+  return c;
+}
+function disposeGroup(g){
+  while (g.children.length){
+    const c = g.children.pop();
+    if (c.geometry) c.geometry.dispose();
+    const mats = Array.isArray(c.material) ? c.material : (c.material ? [c.material] : []);
+    mats.forEach(m=>{ if(m.map) m.map.dispose(); m.dispose && m.dispose(); });
+    if (c.children) disposeGroup(c);
+  }
+}
+
+/* ---------- 场景初始化 ---------- */
+function initScene(){
+  scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x0a0d16);
+
+  camera = new THREE.PerspectiveCamera(50, 1, 0.1, 200);
+  renderer = new THREE.WebGLRenderer({ antialias:true, powerPreference:'high-performance' });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  renderer.outputEncoding = THREE.sRGBEncoding;
+  viewportEl.appendChild(renderer.domElement);
+
+  controls = new THREE.OrbitControls(camera, renderer.domElement);
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.08;
+  // 无限拖动：不设视角上下限（可钻到地面以下、翻过头顶），距离范围放宽 + 自适应裁剪面
+  controls.minDistance = 0.5;
+  controls.maxDistance = 2000;
+  controls.minPolarAngle = 0.0005;
+  controls.maxPolarAngle = Math.PI - 0.0005;
+  controls.autoRotateSpeed = 1.2;
+  controls.addEventListener('change', adaptClip);
+
+  scene.add(volumeGroup);
+  scene.add(auxGroup);
+
+  window.addEventListener('resize', resize);
+  resize();
+}
+
+function resize(){
+  const w = viewportEl.clientWidth, h = viewportEl.clientHeight;
+  if (!w || !h) return;
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+  renderer.setSize(w, h);
+}
+
+function adaptClip(){
+  // 随镜头距离自适应近/远裁剪面，保证拉远拉近都不会被裁掉
+  const d = camera.position.distanceTo(controls.target);
+  const near = Math.max(0.02, d / 200);
+  const far = Math.max(100, d * 200);
+  if (Math.abs(camera.near - near) > near * 0.15 || Math.abs(camera.far - far) > far * 0.15){
+    camera.near = near;
+    camera.far = far;
+    camera.updateProjectionMatrix();
+  }
+}
+
+function fitCamera(){
+  const n = state.frames.length || 1;
+  const halfW = state.frameW / 2, halfH = state.frameH / 2, halfL = ((n - 1) * state.spacing) / 2;
+  const R = Math.sqrt(halfW*halfW + halfH*halfH + halfL*halfL) || 1;
+  const dist = 2.35 * R;
+  const dir = new THREE.Vector3(1.0, 0.55, 1.35).normalize();
+  camera.position.copy(dir.multiplyScalar(dist));
+  camera.near = Math.max(0.1, dist / 200);
+  camera.far = dist * 30;
+  camera.updateProjectionMatrix();
+  controls.target.set(0, 0, 0);
+  controls.update();
+}
+
+/* ---------- 辅助元素：坐标轴 / 标签 / 包围盒 / 地面 / 切片 ---------- */
+function makeLabel(text, color){
+  const c = document.createElement('canvas');
+  c.width = 256; c.height = 128;
+  const x = c.getContext('2d');
+  x.clearRect(0, 0, 256, 128);
+  x.font = '700 64px "PingFang SC","Microsoft YaHei",sans-serif';
+  x.textAlign = 'center'; x.textBaseline = 'middle';
+  x.fillStyle = color;
+  x.fillText(text, 128, 64);
+  const tex = new THREE.CanvasTexture(c);
+  tex.encoding = THREE.sRGBEncoding;
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map:tex, transparent:true, depthTest:false }));
+  sp.scale.set(2.4, 1.2, 1);
+  return sp;
+}
+function makeLine(a, b, color, opacity){
+  const g = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(a[0],a[1],a[2]), new THREE.Vector3(b[0],b[1],b[2])]);
+  return new THREE.Line(g, new THREE.LineBasicMaterial({ color, transparent:true, opacity:opacity||0.9, depthTest:false }));
+}
+
+function buildAux(){
+  disposeGroup(auxGroup);
+  slicePlane = null; sliceBox = null;
+  const n = state.frames.length;
+  const L = n > 1 ? (n - 1) * state.spacing : state.spacing;
+  const hw = state.frameW / 2, hh = state.frameH / 2, hl = L / 2;
+
+  // 坐标轴（T 为时间轴，金色；箭头指向时间增大方向）
+  const axX = makeLine([-hw,0,0], [hw+1.1,0,0], 0xc98d8d, 0.8); axX.name = 'axis'; auxGroup.add(axX);
+  const axY = makeLine([0,-hh,0], [0,hh+1.1,0], 0x8fc79a, 0.8); axY.name = 'axis'; auxGroup.add(axY);
+  const axT = makeLine([0,0,hl], [0,0,-hl-1.1], 0xf2c879, 0.95); axT.name = 'axis'; auxGroup.add(axT);
+  // T 轴方向箭头（首帧在 +Z 前方，时间朝 -Z 增大；锥体尖端指向 -Z）
+  const cone = new THREE.Mesh(
+    new THREE.ConeGeometry(0.22, 0.7, 16),
+    new THREE.MeshBasicMaterial({ color:0xf2c879, transparent:true, opacity:0.95, depthTest:false })
+  );
+  cone.rotation.x = -Math.PI / 2;       // 尖端朝 -Z（时间增大方向）
+  cone.position.set(0, 0, -(hl + 0.95));// 锥体从 -(hl+0.6) 延伸到 -(hl+1.3)，尖端停在轴线末端外
+  cone.name = 'axis';
+  auxGroup.add(cone);
+  const lx = makeLabel('X 空间', '#c98d8d'); lx.position.set(hw+1.55, 0, 0); lx.name = 'axis'; auxGroup.add(lx);
+  const ly = makeLabel('Y 空间', '#8fc79a'); ly.position.set(0, hh+1.55, 0); ly.name = 'axis'; auxGroup.add(ly);
+  const lt = makeLabel('T 时间 →', '#f2c879'); lt.position.set(0, 0, -(hl + 2.7)); lt.name = 'axis'; auxGroup.add(lt);
+
+  // 包围盒
+  const boxGeo = new THREE.BoxGeometry(state.frameW, state.frameH, L);
+  const box = new THREE.LineSegments(
+    new THREE.EdgesGeometry(boxGeo),
+    new THREE.LineBasicMaterial({ color:0x5f7196, transparent:true, opacity:0.55 })
+  );
+  boxGeo.dispose();
+  box.visible = state.boxOn;
+  box.name = 'box';
+  auxGroup.add(box);
+
+  // 地面网格（r128 中 material 可能是单个或数组，统一处理）
+  const gs = Math.max(14, state.frameW + 8, L + 6);
+  const grid = new THREE.GridHelper(gs, Math.round(gs), 0x33456b, 0x1e2a45);
+  const gm = Array.isArray(grid.material) ? grid.material : [grid.material];
+  gm.forEach(m => { m.transparent = true; m.opacity = 0.4; });
+  grid.position.y = -hh - 0.55;
+  grid.visible = state.gridOn;
+  grid.name = 'grid';
+  auxGroup.add(grid);
+
+  // 切片平面（金色发光）+ 边框
+  slicePlane = new THREE.Mesh(
+    new THREE.PlaneGeometry(state.frameW, state.frameH),
+    new THREE.MeshBasicMaterial({ color:0xf2c879, transparent:true, opacity:0.15, side:THREE.DoubleSide, depthWrite:false, blending:THREE.AdditiveBlending })
+  );
+  slicePlane.renderOrder = 10000;
+  const tb = new THREE.BoxGeometry(state.frameW, state.frameH, 0.02);
+  sliceBox = new THREE.LineSegments(new THREE.EdgesGeometry(tb), new THREE.LineBasicMaterial({ color:0xf2c879, transparent:true, opacity:0.95 }));
+  tb.dispose();
+  slicePlane.visible = state.sliceOn;
+  sliceBox.visible = state.sliceOn;
+  auxGroup.add(slicePlane);
+  auxGroup.add(sliceBox);
+
+  applyAuxVisibility();
+}
+
+function applyAuxVisibility(){
+  auxGroup.children.forEach(c => {
+    if (c.name === 'box') c.visible = state.boxOn;
+    else if (c.name === 'grid') c.visible = state.gridOn;
+    else if (c.name === 'axis') c.visible = state.axisOn;
+    else if (c === slicePlane) c.visible = state.sliceOn;
+    else if (c === sliceBox) c.visible = state.sliceOn;
+  });
+}
+
+/* ---------- 柱体构建 ---------- */
+function buildVolume(){
+  disposeGroup(volumeGroup);
+  frameMeshes = [];
+  const n = state.frames.length;
+  if (!n){ buildAux(); updateHud(); return; }
+  const geo = new THREE.PlaneGeometry(1, 1);
+  state.frames.forEach((fr, i) => {
+    const tex = new THREE.CanvasTexture(fr.canvas);
+    tex.encoding = THREE.sRGBEncoding;
+    tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+    const mat = new THREE.MeshBasicMaterial({
+      map:tex, transparent:true, opacity:state.opacity,
+      side:THREE.DoubleSide, depthWrite:false,
+      blending: state.blend === 'additive' ? THREE.AdditiveBlending : THREE.NormalBlending
+    });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.scale.set(state.frameW, state.frameH, 1);
+    mesh.position.z = zFor(i);
+    mesh.renderOrder = (n - 1) - i; // 远帧先画（正常混合下画家算法）
+    volumeGroup.add(mesh);
+    frameMeshes.push(mesh);
+  });
+  if (state.sliceOn) updateSlice(); else frameMeshes.forEach(m => m.material.opacity = state.opacity);
+  buildAux();
+  fitCamera();
+  updateHud();
+}
+
+function updateSpacing(){
+  const n = state.frames.length;
+  frameMeshes.forEach((m, i) => m.position.z = zFor(i));
+  buildAux();
+  if (state.sliceOn) updateSlice();
+}
+
+function updateOpacity(){
+  if (state.sliceOn){ updateSlice(); return; }
+  frameMeshes.forEach(m => m.material.opacity = state.opacity);
+}
+
+function updateBlend(){
+  frameMeshes.forEach(m => {
+    m.material.blending = state.blend === 'additive' ? THREE.AdditiveBlending : THREE.NormalBlending;
+    m.material.needsUpdate = true;
+  });
+}
+
+/* ---------- 时间切片 ---------- */
+function updateSlice(){
+  const on = state.sliceOn;
+  sliceRowEl.classList.toggle('hidden', !on);
+  if (slicePlane) slicePlane.visible = on;
+  if (sliceBox) sliceBox.visible = on;
+  const n = frameMeshes.length;
+  if (!on){
+    frameMeshes.forEach(m => m.material.opacity = state.opacity);
+    return;
+  }
+  const idx = Math.min(Math.max(0, state.sliceIndex), n - 1);
+  const z = zFor(idx);
+  slicePlane.position.z = z;
+  sliceBox.position.z = z;
+  const spread = Math.max(0.1, state.spacing * 1.5);
+  frameMeshes.forEach((m, i) => {
+    const d = Math.abs(m.position.z - z);
+    const k = Math.exp(-(d * d) / (spread * spread));
+    m.material.opacity = state.opacity * (0.08 + 0.92 * k);
+  });
+  const f = state.frames[idx];
+  if (f){
+    previewCtx.drawImage(f.canvas, 0, 0, previewCanvas.width, previewCanvas.height);
+    sliceTimeEl.textContent = 't = ' + f.t.toFixed(2) + ' s';
+  }
+}
+
+/* ---------- 演示帧生成（纯黑背景：暗色即“无”，发光模式下只剩世界线） ---------- */
+function generateDemoFrames(n){
+  const W = 640, H = 360;
+  const canvas = document.createElement('canvas'); canvas.width = W; canvas.height = H;
+  const ctx = canvas.getContext('2d');
+  const cx = W / 2, groundY = 232, cam = 5, S = 88;
+  const frames = [];
+  const T = 3; // 虚拟时长 3 秒
+  const XR = 1.8, ZR = 1.9;
+
+  function proj(x, y, z){
+    const f = cam / (cam - z);
+    return { x: cx + x * f * S, y: groundY - y * f * S, f };
+  }
+  function hueFor(t){ return (20 + (t / T) * 330) % 360; }
+  function drawBall(x, y, z, hue, sizeMul){
+    const p = proj(x, y, z);
+    const r = 14 * p.f * sizeMul;
+    // 地面阴影
+    const sp = proj(x, 0, z);
+    const shA = Math.max(0, 0.38 - y * 0.14);
+    ctx.fillStyle = 'rgba(0,0,0,' + shA.toFixed(3) + ')';
+    ctx.beginPath(); ctx.ellipse(sp.x, groundY, r * 1.3, r * 0.36, 0, 0, 7); ctx.fill();
+    // 光晕
+    const gl = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, r * 3);
+    gl.addColorStop(0, 'hsla(' + hue + ',100%,65%,0.5)');
+    gl.addColorStop(1, 'hsla(0,0%,0%,0)');
+    ctx.fillStyle = gl; ctx.beginPath(); ctx.arc(p.x, p.y, r * 3, 0, 7); ctx.fill();
+    // 球体
+    const bg = ctx.createRadialGradient(p.x - r*0.3, p.y - r*0.35, r*0.15, p.x, p.y, r);
+    bg.addColorStop(0, 'hsl(' + hue + ',95%,88%)');
+    bg.addColorStop(0.55, 'hsl(' + hue + ',85%,62%)');
+    bg.addColorStop(1, 'hsl(' + hue + ',80%,40%)');
+    ctx.fillStyle = bg; ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, 7); ctx.fill();
+    // 高光描边
+    ctx.strokeStyle = 'hsla(' + hue + ',100%,75%,0.9)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, 7); ctx.stroke();
+  }
+
+  for (let i = 0; i < n; i++){
+    const t = T * i / Math.max(1, n - 1);
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, W, H);
+    // 主球：左右摆动 + 上下弹跳（世界线＝抛物线拱形）
+    const bx = 1.05 * Math.sin(2 * Math.PI * 0.55 * t);
+    const bz = 0.8 * Math.sin(2 * Math.PI * 0.32 * t + 0.9);
+    const ff = ((t * 1.35) % 1 + 1) % 1;
+    const by = 1.5 * 4 * ff * (1 - ff);
+    drawBall(bx, by, bz, hueFor(t), 1);
+    // 卫星：环绕主球（世界线＝螺旋）
+    const th = 2 * Math.PI * 2.1 * t;
+    const sx = bx + 0.42 * Math.cos(th);
+    const sy = by + 0.34;
+    const sz = bz + 0.42 * Math.sin(th);
+    drawBall(sx, sy, sz, (hueFor(t) + 130) % 360, 0.55);
+    frames.push({ canvas: copyCanvas(canvas), t });
+  }
+  return frames;
+}
+
+/* ---------- 视频帧抽取 ---------- */
+function seekTo(v, t){
+  return new Promise(res => {
+    let done = false;
+    const fin = () => { if (!done){ done = true; v.removeEventListener('seeked', onS); clearTimeout(tm); res(); } };
+    const onS = () => fin();
+    v.addEventListener('seeked', onS);
+    const dur = v.duration || 0;
+    try { v.currentTime = Math.max(0, Math.min(t, dur - 0.001)); } catch(e){}
+    const tm = setTimeout(fin, 5000);
+  });
+}
+async function extractFrames(v, n){
+  const dur = v.duration || 0;
+  if (!dur || !isFinite(dur)) throw new Error('无法读取视频时长，请换一个文件试试');
+  const srcW = v.videoWidth || 640, srcH = v.videoHeight || 360;
+  const scale = Math.min(1, 640 / srcW);
+  const w = Math.max(2, Math.round(srcW * scale));
+  const h = Math.max(2, Math.round(srcH * scale));
+  const canvas = document.createElement('canvas'); canvas.width = w; canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  state.frames = [];
+  for (let i = 0; i < n; i++){
+    const t = dur * i / Math.max(1, n - 1);
+    await seekTo(v, t);
+    ctx.drawImage(v, 0, 0, w, h);
+    state.frames.push({ canvas: copyCanvas(canvas), t });
+    if (i % 8 === 0) updateSpinner('正在抽取视频帧… ' + Math.round((i + 1) / n * 100) + '%');
+  }
+  state.frameW = 9;
+  state.frameH = 9 * (h / w);
+}
+function setupVideo(file){
+  return new Promise((resolve, reject) => {
+    const v = document.createElement('video');
+    v.muted = true; v.playsInline = true; v.preload = 'auto';
+    v.style.cssText = 'position:fixed;width:2px;height:2px;opacity:0;pointer-events:none;';
+    v.src = URL.createObjectURL(file);
+    v.onloadedmetadata = () => { v.play().catch(()=>{}); resolve(v); };
+    v.onerror = () => reject(new Error('无法读取该视频文件'));
+    document.body.appendChild(v);
+  });
+}
+
+/* ---------- 数据源切换 ---------- */
+function clearOldVideo(){
+  if (state.video){
+    URL.revokeObjectURL(state.video.src);
+    state.video.remove();
+    state.video = null;
+    state.videoMeta = null;
+  }
+}
+function setBlendUI(){
+  document.querySelectorAll('[data-blend]').forEach(b => b.classList.toggle('active', b.dataset.blend === state.blend));
+}
+async function loadDemo(){
+  state.source = 'demo';
+  clearOldVideo();
+  showSpinner('正在生成演示帧…');
+  // 让进度提示先绘制一帧
+  await new Promise(r => setTimeout(r, 30));
+  state.frames = generateDemoFrames(state.frameCount);
+  state.frameW = 9;
+  state.frameH = 9 * (360 / 640);
+  state.blend = 'additive';
+  setBlendUI();
+  buildVolume();
+  hideSpinner();
+}
+async function loadVideoFile(file){
+  if (!file) return;
+  state.source = 'video';
+  showSpinner('正在解析视频…');
+  try{
+    const v = await setupVideo(file);
+    clearOldVideo();
+    state.video = v;
+    state.videoMeta = { name:file.name, dur:v.duration || 0, w:v.videoWidth, h:v.videoHeight };
+    await extractFrames(v, state.frameCount);
+    state.blend = 'normal';
+    setBlendUI();
+    buildVolume();
+    hideSpinner();
+    fileInfoEl.textContent = file.name + ' · ' + state.videoMeta.dur.toFixed(1) + 's · ' + state.videoMeta.w + '×' + state.videoMeta.h;
+    fileInfoEl.classList.remove('err');
+  }catch(e){
+    hideSpinner();
+    fileInfoEl.textContent = e.message;
+    fileInfoEl.classList.add('err');
+  }
+}
+
+/* ---------- HUD ---------- */
+function esc(s){ return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function updateHud(){
+  const n = state.frames.length;
+  if (!n){ hudEl.innerHTML = '等待数据…'; return; }
+  const f0 = state.frames[0];
+  const w = f0 ? f0.canvas.width : 0, h = f0 ? f0.canvas.height : 0;
+  const name = state.source === 'demo' ? '演示动画' : (state.videoMeta && state.videoMeta.name ? state.videoMeta.name : '本地视频');
+  const dur = state.source === 'demo' ? 3 : (state.videoMeta ? state.videoMeta.dur : 0);
+  const L = ((n - 1) * state.spacing).toFixed(1);
+  hudEl.innerHTML = '<b>' + esc(name) + '</b> · ' + n + ' 帧 · ' + w + '×' + h + ' · ' + (state.source === 'demo' ? '虚拟 ' : '') + dur.toFixed(1) + 's · 柱体 ' + state.frameW.toFixed(1) + '×' + state.frameH.toFixed(1) + '×' + L + '<br><span id="fpsLine">fps --</span>';
+  fpsEl = $('fpsLine');
+}
+
+/* ---------- UI 绑定 ---------- */
+function bindUI(){
+  $('btnDemo').addEventListener('click', () => {
+    if (state.source !== 'demo') loadDemo();
+  });
+  $('fileInput').addEventListener('change', e => loadVideoFile(e.target.files && e.target.files[0]));
+
+  const fc = $('frameCount'), fcV = $('frameCountVal');
+  fc.addEventListener('input', () => { fcV.textContent = fc.value; });
+  fc.addEventListener('change', async () => {
+    const v = parseInt(fc.value, 10);
+    if (v === state.frameCount) return;
+    state.frameCount = v;
+    state.sliceIndex = Math.min(state.sliceIndex, v - 1);
+    $('sliceIndex').max = v - 1;
+    if (state.source === 'demo'){
+      await loadDemo();
+    }else if (state.video){
+      showSpinner('正在重新抽取视频帧…');
+      try{ await extractFrames(state.video, v); buildVolume(); hideSpinner(); }
+      catch(e){ hideSpinner(); showToast(e.message); }
+    }
+  });
+
+  const op = $('opacity'), opV = $('opacityVal');
+  op.addEventListener('input', () => {
+    opV.textContent = (op.value / 100).toFixed(2);
+    state.opacity = op.value / 100;
+    updateOpacity();
+  });
+
+  const sp = $('spacing'), spV = $('spacingVal');
+  sp.addEventListener('input', () => {
+    spV.textContent = (sp.value / 100).toFixed(2);
+    state.spacing = sp.value / 100;
+    updateSpacing();
+  });
+  sp.addEventListener('change', fitCamera);
+
+  document.querySelectorAll('[data-blend]').forEach(b => {
+    b.addEventListener('click', () => {
+      state.blend = b.dataset.blend;
+      setBlendUI();
+      updateBlend();
+    });
+  });
+
+  $('sliceToggle').addEventListener('change', e => {
+    state.sliceOn = e.target.checked;
+    if (state.sliceOn){
+      state.sliceIndex = Math.min(state.sliceIndex, state.frames.length - 1);
+      $('sliceIndex').value = state.sliceIndex;
+    }
+    updateSlice();
+  });
+  const si = $('sliceIndex');
+  si.addEventListener('input', () => {
+    state.sliceIndex = parseInt(si.value, 10);
+    updateSlice();
+  });
+  $('slicePlay').addEventListener('click', () => {
+    state.slicePlaying = !state.slicePlaying;
+    $('slicePlay').textContent = state.slicePlaying ? '暂停' : '播放';
+    if (state.slicePlaying && !state.sliceOn){ $('sliceToggle').checked = true; state.sliceOn = true; updateSlice(); }
+  });
+
+  $('axisToggle').addEventListener('change', e => { state.axisOn = e.target.checked; applyAuxVisibility(); });
+  $('gridToggle').addEventListener('change', e => { state.gridOn = e.target.checked; applyAuxVisibility(); });
+  $('boxToggle').addEventListener('change', e => { state.boxOn = e.target.checked; applyAuxVisibility(); });
+  $('autoRotate').addEventListener('change', e => { state.autoRotate = e.target.checked; controls.autoRotate = e.target.checked; });
+  $('resetView').addEventListener('click', fitCamera);
+}
+
+/* ---------- 主循环 ---------- */
+let last = performance.now(), fpsAcc = 0, fpsN = 0;
+function animate(now){
+  raf = requestAnimationFrame(animate);
+  const dt = Math.min(0.1, (now - last) / 1000);
+  last = now;
+  if (state.sliceOn && state.slicePlaying && frameMeshes.length){
+    state.sliceAcc += dt;
+    if (state.sliceAcc >= 0.09){
+      state.sliceAcc = 0;
+      state.sliceIndex = (state.sliceIndex + 1) % frameMeshes.length;
+      $('sliceIndex').value = state.sliceIndex;
+      updateSlice();
+    }
+  }
+  controls.update();
+  renderer.render(scene, camera);
+  fpsAcc += dt; fpsN++;
+  if (fpsAcc >= 0.5){
+    if (fpsEl) fpsEl.textContent = 'fps ' + Math.round(fpsN / fpsAcc);
+    fpsAcc = 0; fpsN = 0;
+  }
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden){
+    cancelAnimationFrame(raf);
+  }else{
+    last = performance.now();
+    raf = requestAnimationFrame(animate);
+  }
+});
+
+/* ---------- 启动 ---------- */
+function init(){
+  if (!window.THREE || !window.THREE.OrbitControls){
+    showToast('3D 库加载失败：请检查网络后刷新，或确认 lib 目录存在');
+    return;
+  }
+  try{
+    initScene();
+    bindUI();
+    loadDemo();          // 首帧立即构建并渲染
+    animate(performance.now());
+    document.body.dataset.ready = '1';
+  }catch(e){
+    showToast('初始化失败：' + (e && e.message ? e.message : e));
+  }
+}
+init();
+</script>
+</body>
+</html>
