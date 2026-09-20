@@ -26,6 +26,10 @@ three.js 优先从 jsDelivr CDN 加载，加载失败时自动回退到本地 `l
 - Three.js r128（本地镜像位于 `lib/`，jsDelivr 作为首选 CDN）
 - 页面自检：`python <html-skill>/scripts/shot.py <html>`（可选）
 
+## License
+
+MIT License，见 [LICENSE](LICENSE)。
+
 ## 文件结构
 
 ```
